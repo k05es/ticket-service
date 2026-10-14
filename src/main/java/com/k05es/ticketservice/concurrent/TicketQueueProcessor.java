@@ -17,7 +17,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Многопоточный обработчик очереди заявок.
- * Использует ExecutorService для управления пулом потоков.
  */
 public class TicketQueueProcessor {
 
@@ -33,7 +32,7 @@ public class TicketQueueProcessor {
     // Сервис пользователей
     private final UserService userService;
 
-    // Пул потоков (ExecutorService)
+    // Пул потоков
     private final ExecutorService executor;
 
     // Флаг работы
@@ -44,6 +43,9 @@ public class TicketQueueProcessor {
 
     // Сколько заявок обработано
     private final AtomicInteger processedCount = new AtomicInteger(0);
+
+    // Счётчик для чередования специалистов (round-robin)
+    private final AtomicInteger counter = new AtomicInteger(0);
 
     public TicketQueueProcessor(TicketService ticketService,
                                 UserService userService,
@@ -132,7 +134,8 @@ public class TicketQueueProcessor {
         // Обрабатывает заявку
         private void processTicket(Ticket ticket, String workerName) {
             System.out.println("[" + workerName + "] Взял заявку #" + ticket.getId()
-                    + ": \"" + ticket.getTitle() + "\"");
+                    + ": \"" + ticket.getTitle() + "\""
+                    + " (заказчик: " + ticket.getCustomer().getUsername() + ")");
 
             SpecialistUser specialist = findAvailableSpecialist();
             if (specialist == null) {
@@ -147,26 +150,37 @@ public class TicketQueueProcessor {
             System.out.println("[" + workerName + "] Назначен специалист "
                     + specialist.getUsername() + " на заявку #" + ticket.getId());
 
+            // Имитация работы: 500–1000 мс
             sleep(500 + random.nextInt(500));
 
+            // Клиент оставляет сообщение, пока заявка в работе
+            if (ticketService.addMessageToTicket(
+                    ticket.getId(),
+                    ticket.getCustomer(),
+                    "Спасибо за оперативное решение!")) {
+                System.out.println("[" + workerName + "] Добавлено сообщение в заявку #"
+                        + ticket.getId());
+            }
+
+            // Оценка от 4.0 до 5.0
             double rating = 4.0 + random.nextInt(11) / 10.0;
             if (ticketService.completeTicket(ticket.getId(), rating)) {
                 System.out.println("[" + workerName + "] Завершил заявку #" + ticket.getId()
-                        + " (оценка " + String.format("%.1f", rating) + ")");
+                        + " (" + specialist.getUsername() + " - оценка "
+                        + String.format("%.1f", rating) + ")");
                 processedCount.incrementAndGet();
             }
         }
 
-        // Ищет первого свободного специалиста
+        // Выбирает специалиста по кругу (round-robin).
+        // Гарантирует, что оба специалиста получат заявки.
         private SpecialistUser findAvailableSpecialist() {
             List<User> specialists = userService.findUsersByRole(UserRole.SPECIALIST);
-            for (User user : specialists) {
-                if (user instanceof SpecialistUser specialist
-                        && specialist.canTakeMoreTickets()) {
-                    return specialist;
-                }
+            if (specialists.isEmpty()) {
+                return null;
             }
-            return null;
+            int index = counter.getAndIncrement() % specialists.size();
+            return (SpecialistUser) specialists.get(index);
         }
 
         // Спит без выброса исключения
