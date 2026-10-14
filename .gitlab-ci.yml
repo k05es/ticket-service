@@ -1,0 +1,24 @@
+image: maven:3-openjdk-17
+
+variables:
+  MAVEN_CLI_OPTS: >-
+    --batch-mode
+    --errors
+    --fail-at-end
+    --show-version
+    --no-transfer-progress
+    -DinstallAtEnd=true
+    -DdeployAtEnd=true
+
+cache:
+  paths:
+    - .m2/repository
+
+.verify:
+  stage: test
+  script:
+    - 'mvn $MAVEN_CLI_OPTS verify'
+
+verify:
+  extends:
+    - .verify
