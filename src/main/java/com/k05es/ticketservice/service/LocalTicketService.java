@@ -10,6 +10,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -19,6 +22,9 @@ public class LocalTicketService implements TicketService {
 
     // ID заявки -> сама заявка
     private final Map<Long, Ticket> tickets = new HashMap<>();
+
+    // Очередь необработанных заявок
+    private final BlockingQueue<Ticket> pendingQueue = new LinkedBlockingQueue<>();
 
     // Счётчик ID
     private final AtomicLong idGenerator = new AtomicLong(1);
@@ -33,6 +39,7 @@ public class LocalTicketService implements TicketService {
         long newId = idGenerator.getAndIncrement();
         Ticket ticket = new Ticket(newId, title, description, customer);
         tickets.put(newId, ticket);
+        pendingQueue.add(ticket);
         customer.incrementCreatedTicketCount();
 
         return ticket;
@@ -133,6 +140,7 @@ public class LocalTicketService implements TicketService {
         } catch (IllegalStateException e) {
             return false;
         }
+        pendingQueue.remove(ticket);
         specialist.incrementActiveTicketCount();
         return true;
     }
@@ -189,6 +197,30 @@ public class LocalTicketService implements TicketService {
         if (id == null) {
             return false;
         }
-        return tickets.remove(id) != null;
+        Ticket removed = tickets.remove(id);
+        if (removed != null) {
+            pendingQueue.remove(removed);
+        }
+        return removed != null;
+    }
+
+    // Берёт следующую заявку из очереди с ожиданием
+    @Override
+    public Ticket pollNextTicket(long timeout, TimeUnit unit) throws InterruptedException {
+        return pendingQueue.poll(timeout, unit);
+    }
+
+    // Возвращает заявку обратно в очередь
+    @Override
+    public void returnToQueue(Ticket ticket) {
+        if (ticket != null) {
+            pendingQueue.add(ticket);
+        }
+    }
+
+    // Проверяет, есть ли заявки в очереди
+    @Override
+    public boolean hasPendingTickets() {
+        return !pendingQueue.isEmpty();
     }
 }

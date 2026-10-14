@@ -7,6 +7,7 @@ import com.k05es.ticketservice.model.TicketStatus;
 import com.k05es.ticketservice.model.User;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Сервис для работы с заявками.
@@ -45,4 +46,14 @@ public interface TicketService {
 
     // Удаляет заявку
     boolean deleteTicket(Long id);
+
+    // Берёт следующую заявку из очереди с ожиданием.
+    // Возвращает null, если за timeout не пришло ни одной заявки
+    Ticket pollNextTicket(long timeout, TimeUnit unit) throws InterruptedException;
+
+    // Возвращает заявку обратно в очередь
+    void returnToQueue(Ticket ticket);
+
+    // Проверяет, есть ли заявки в очереди
+    boolean hasPendingTickets();
 }
