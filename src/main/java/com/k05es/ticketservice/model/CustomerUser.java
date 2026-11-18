@@ -1,5 +1,10 @@
 package com.k05es.ticketservice.model;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.DiscriminatorValue;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import java.util.regex.Pattern;
 
 /**
@@ -7,45 +12,32 @@ import java.util.regex.Pattern;
  * Создаёт заявки и общается со специалистом.
  * Роль — CUSTOMER.
  */
+@Entity
+@DiscriminatorValue("CUSTOMER")
 public class CustomerUser extends User {
 
     // Маска телефона: +7 и ровно 10 цифр
     private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+7\\d{10}$");
 
-    // Контактный телефон в формате +7XXXXXXXXXX
+    @Column(length = 12)
     private String phone;
-
-    // Название компании (необязательно)
+    @Column(name = "company_name", length = 120)
     private String companyName;
-
-    // Адрес
+    @Column(length = 255)
     private String address;
-
-    // Предпочитаемый способ связи
+    @Enumerated(EnumType.STRING)
+    @Column(name = "preferred_contact_method", length = 20)
     private ContactPreference preferredContactMethod;
-
-    // Количество созданных заявок
+    @Column(name = "created_ticket_count", nullable = false)
     private int createdTicketCount;
 
-    /**
-     * Конструктор по умолчанию.
-     * Нужен фреймворкам, которым требуется пустой объект.
-     */
-    protected CustomerUser() {
-        super();
-    }
+    /** Конструктор по умолчанию для JPA. */
+    protected CustomerUser() { super(); }
 
-    /**
-     * Конструктор со всеми полями.
-     */
     public CustomerUser(Long id, String username, String email, String passHash,
-                        UserStatus status,
-                        String lastName, String firstName, String middleName,
-                        String phone,
-                        String companyName,
-                        String address,
-                        ContactPreference preferredContactMethod,
-                        int createdTicketCount) {
+                        UserStatus status, String lastName, String firstName, String middleName,
+                        String phone, String companyName, String address,
+                        ContactPreference preferredContactMethod, int createdTicketCount) {
         super(id, username, email, passHash, UserRole.CUSTOMER, status,
                 lastName, firstName, middleName);
         setPhone(phone);
@@ -55,100 +47,30 @@ public class CustomerUser extends User {
         this.createdTicketCount = createdTicketCount;
     }
 
-    // Геттеры и сеттеры
-
-    public String getPhone() {
-        return phone;
-    }
-
-    /**
-     * Устанавливает телефон. Принимает только формат +7XXXXXXXXXX.
-     */
+    public String getPhone() { return phone; }
     public void setPhone(String phone) {
-        if (phone == null || phone.isBlank()) {
-            throw new IllegalArgumentException("Телефон обязателен");
-        }
+        if (phone == null || phone.isBlank()) throw new IllegalArgumentException("Телефон обязателен");
         if (!PHONE_PATTERN.matcher(phone).matches()) {
-            throw new IllegalArgumentException(
-                    "Телефон должен быть в формате +7XXXXXXXXXX: " + phone);
+            throw new IllegalArgumentException("Телефон должен быть в формате +7XXXXXXXXXX: " + phone);
         }
         this.phone = phone;
     }
+    public String getCompanyName() { return companyName; }
+    public void setCompanyName(String companyName) { this.companyName = companyName; }
+    public String getAddress() { return address; }
+    public void setAddress(String address) { this.address = address; }
+    public ContactPreference getPreferredContactMethod() { return preferredContactMethod; }
+    public void setPreferredContactMethod(ContactPreference value) { this.preferredContactMethod = value; }
+    public int getCreatedTicketCount() { return createdTicketCount; }
+    public void setCreatedTicketCount(int value) { this.createdTicketCount = value; }
+    public boolean isCompanyCustomer() { return companyName != null && !companyName.isBlank(); }
+    public void incrementCreatedTicketCount() { this.createdTicketCount++; }
 
-    public String getCompanyName() {
-        return companyName;
-    }
-
-    public void setCompanyName(String companyName) {
-        this.companyName = companyName;
-    }
-
-    public String getAddress() {
-        return address;
-    }
-
-    public void setAddress(String address) {
-        this.address = address;
-    }
-
-    public ContactPreference getPreferredContactMethod() {
-        return preferredContactMethod;
-    }
-
-    public void setPreferredContactMethod(ContactPreference preferredContactMethod) {
-        this.preferredContactMethod = preferredContactMethod;
-    }
-
-    public int getCreatedTicketCount() {
-        return createdTicketCount;
-    }
-
-    public void setCreatedTicketCount(int createdTicketCount) {
-        this.createdTicketCount = createdTicketCount;
-    }
-
-    /**
-     * Проверяет, является ли клиент представителем компании.
-     */
-    public boolean isCompanyCustomer() {
-        return this.companyName != null && !this.companyName.isBlank();
-    }
-
-    /**
-     * Увеличивает счётчик созданных заявок.
-     */
-    public void incrementCreatedTicketCount() {
-        this.createdTicketCount++;
-    }
-
-    /**
-     * Возвращает отображаемое имя клиента.
-     */
     @Override
     public String getDisplayName() {
         String fullName = getFullName();
-        if (fullName != null && !fullName.isBlank()) {
-            return "Клиент " + fullName + " (" + getUsername() + ")";
-        }
-        return "Клиент (" + getUsername() + ")";
-    }
-
-    /**
-     * Краткое строковое представление клиента.
-     */
-    @Override
-    public String toString() {
-        return "CustomerUser{" +
-                "id=" + getId() +
-                ", username='" + getUsername() + '\'' +
-                ", fullName='" + getFullName() + '\'' +
-                ", email='" + getEmail() + '\'' +
-                ", status=" + getStatus() +
-                ", phone='" + phone + '\'' +
-                ", companyName='" + companyName + '\'' +
-                ", address='" + address + '\'' +
-                ", preferredContactMethod=" + preferredContactMethod +
-                ", createdTicketCount=" + createdTicketCount +
-                '}';
+        return fullName != null && !fullName.isBlank()
+                ? "Клиент " + fullName + " (" + getUsername() + ")"
+                : "Клиент (" + getUsername() + ")";
     }
 }

@@ -1,51 +1,41 @@
 package com.k05es.ticketservice.model;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.DiscriminatorValue;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+
 /**
  * Специалист системы.
  * Обрабатывает заявки клиентов.
  * Роль — SPECIALIST.
  */
+@Entity
+@DiscriminatorValue("SPECIALIST")
 public class SpecialistUser extends User {
 
-    // Средняя оценка работы
+    @Column(name = "average_rating", nullable = false)
     private double averageRating;
-
-    // Количество завершённых заявок за всё время
+    @Column(name = "completed_ticket_count", nullable = false)
     private int completedTicketCount;
-
-    // Количество завершённых заявок за сегодня
+    @Column(name = "completed_today_count", nullable = false)
     private int completedTodayCount;
-
-    // Количество активных заявок
+    @Column(name = "active_ticket_count", nullable = false)
     private int activeTicketCount;
-
-    // Доступность для новых заявок
+    @Column(nullable = false)
     private boolean available;
-
-    // Отдел
+    @Enumerated(EnumType.STRING)
+    @Column(name = "specialist_department", length = 30)
     private Department department;
 
-    /**
-     * Конструктор по умолчанию.
-     * Нужен фреймворкам, которым требуется пустой объект.
-     */
-    protected SpecialistUser() {
-        super();
-        this.available = true;
-    }
+    /** Конструктор по умолчанию для JPA. */
+    protected SpecialistUser() { super(); this.available = true; }
 
-    /**
-     * Конструктор со всеми полями.
-     */
     public SpecialistUser(Long id, String username, String email, String passHash,
-                          UserStatus status,
-                          String lastName, String firstName, String middleName,
-                          double averageRating,
-                          int completedTicketCount,
-                          int completedTodayCount,
-                          int activeTicketCount,
-                          boolean available,
-                          Department department) {
+                          UserStatus status, String lastName, String firstName, String middleName,
+                          double averageRating, int completedTicketCount, int completedTodayCount,
+                          int activeTicketCount, boolean available, Department department) {
         super(id, username, email, passHash, UserRole.SPECIALIST, status,
                 lastName, firstName, middleName);
         this.averageRating = averageRating;
@@ -56,130 +46,38 @@ public class SpecialistUser extends User {
         this.department = department;
     }
 
-    // Геттеры и сеттеры
+    public double getAverageRating() { return averageRating; }
+    public void setAverageRating(double value) { this.averageRating = value; }
+    public int getCompletedTicketCount() { return completedTicketCount; }
+    public void setCompletedTicketCount(int value) { this.completedTicketCount = value; }
+    public int getCompletedTodayCount() { return completedTodayCount; }
+    public void setCompletedTodayCount(int value) { this.completedTodayCount = value; }
+    public int getActiveTicketCount() { return activeTicketCount; }
+    public void setActiveTicketCount(int value) { this.activeTicketCount = value; }
+    public boolean isAvailable() { return available; }
+    public void setAvailable(boolean value) { this.available = value; }
+    public Department getDepartment() { return department; }
+    public void setDepartment(Department value) { this.department = value; }
 
-    public double getAverageRating() {
-        return averageRating;
-    }
-
-    public void setAverageRating(double averageRating) {
-        this.averageRating = averageRating;
-    }
-
-    public int getCompletedTicketCount() {
-        return completedTicketCount;
-    }
-
-    public void setCompletedTicketCount(int completedTicketCount) {
-        this.completedTicketCount = completedTicketCount;
-    }
-
-    public int getCompletedTodayCount() {
-        return completedTodayCount;
-    }
-
-    public void setCompletedTodayCount(int completedTodayCount) {
-        this.completedTodayCount = completedTodayCount;
-    }
-
-    public int getActiveTicketCount() {
-        return activeTicketCount;
-    }
-
-    public void setActiveTicketCount(int activeTicketCount) {
-        this.activeTicketCount = activeTicketCount;
-    }
-
-    public boolean isAvailable() {
-        return available;
-    }
-
-    public void setAvailable(boolean available) {
-        this.available = available;
-    }
-
-    public Department getDepartment() {
-        return department;
-    }
-
-    public void setDepartment(Department department) {
-        this.department = department;
-    }
-
-    /**
-     * Увеличивает счётчик активных заявок.
-     */
     public void incrementActiveTicketCount() {
-        if (canTakeMoreTickets()) {
-            this.activeTicketCount++;
-        }
+        if (canTakeMoreTickets()) this.activeTicketCount++;
     }
-
-    /**
-     * Уменьшает счётчик активных заявок.
-     */
-    public void decrementActiveTicketCount() {
-        if (this.activeTicketCount > 0) {
-            this.activeTicketCount--;
-        }
-    }
-
-    /**
-     * Проверяет, может ли специалист взять ещё заявку.
-     */
-    public boolean canTakeMoreTickets() {
-        return this.available;
-    }
-
-    /**
-     * Регистрирует завершённую заявку и пересчитывает средний рейтинг.
-     */
+    public void decrementActiveTicketCount() { if (activeTicketCount > 0) activeTicketCount--; }
+    public boolean canTakeMoreTickets() { return available && isActive(); }
     public void registerCompletedTicket(double rating) {
-        if (rating < 0.0 || rating > 5.0) {
-            throw new IllegalArgumentException("Оценка должна быть от 0.0 до 5.0");
-        }
-        double total = this.averageRating * this.completedTicketCount;
-        this.completedTicketCount++;
-        this.completedTodayCount++;
-        this.averageRating = (total + rating) / this.completedTicketCount;
+        if (!Double.isFinite(rating) || rating < 0.0 || rating > 5.0) throw new IllegalArgumentException("Оценка должна быть от 0.0 до 5.0");
+        double total = averageRating * completedTicketCount;
+        completedTicketCount++;
+        completedTodayCount++;
+        averageRating = (total + rating) / completedTicketCount;
     }
+    public void resetCompletedTodayCount() { completedTodayCount = 0; }
 
-    /**
-     * Сбрасывает счётчик завершённых заявок за сегодня.
-     */
-    public void resetCompletedTodayCount() {
-        this.completedTodayCount = 0;
-    }
-
-    /**
-     * Возвращает отображаемое имя специалиста.
-     */
     @Override
     public String getDisplayName() {
         String fullName = getFullName();
-        if (fullName != null && !fullName.isBlank()) {
-            return "Специалист " + fullName + " (" + getUsername() + ")";
-        }
-        return "Специалист (" + getUsername() + ")";
-    }
-
-    /**
-     * Краткое строковое представление специалиста.
-     */
-    @Override
-    public String toString() {
-        return "SpecialistUser{" +
-                "id=" + getId() +
-                ", username='" + getUsername() + '\'' +
-                ", fullName='" + getFullName() + '\'' +
-                ", email='" + getEmail() + '\'' +
-                ", status=" + getStatus() +
-                ", averageRating=" + averageRating +
-                ", completedTicketCount=" + completedTicketCount +
-                ", completedTodayCount=" + completedTodayCount +
-                ", activeTicketCount=" + activeTicketCount +
-                ", available=" + available +
-                ", department=" + department +
-                '}';
+        return fullName != null && !fullName.isBlank()
+                ? "Специалист " + fullName + " (" + getUsername() + ")"
+                : "Специалист (" + getUsername() + ")";
     }
 }

@@ -1,5 +1,14 @@
 package com.k05es.ticketservice.model;
 
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.DiscriminatorValue;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Column;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -8,145 +17,68 @@ import java.util.Set;
  * Управляет пользователями и специалистами.
  * Роль — ADMIN.
  */
+@Entity
+@DiscriminatorValue("ADMIN")
 public class AdminUser extends User {
 
     // Набор разрешений
-    private Set<Permission> permissions;
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "admin_permissions", joinColumns = @JoinColumn(name = "admin_id"))
+    @Column(name = "permission", nullable = false, length = 40)
+    @Enumerated(EnumType.STRING)
+    private Set<Permission> permissions = new HashSet<>();
 
     // Отдел
+    @Enumerated(EnumType.STRING)
+    @Column(name = "admin_department", length = 30)
     private Department department;
 
     // Идентификаторы закреплённых специалистов
-    private Set<Long> responsibleForSpecialists;
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "admin_specialists", joinColumns = @JoinColumn(name = "admin_id"))
+    @Column(name = "specialist_id", nullable = false)
+    private Set<Long> responsibleForSpecialists = new HashSet<>();
 
-    /**
-     * Конструктор по умолчанию.
-     * Нужен фреймворкам, которым требуется пустой объект.
-     */
-    protected AdminUser() {
-        super();
-        this.permissions = new HashSet<>();
-        this.responsibleForSpecialists = new HashSet<>();
-    }
+    /** Конструктор по умолчанию для JPA. */
+    protected AdminUser() { super(); }
 
-    /**
-     * Конструктор со всеми полями.
-     */
+    /** Конструктор со всеми полями. */
     public AdminUser(Long id, String username, String email, String passHash,
-                     UserStatus status,
-                     String lastName, String firstName, String middleName,
-                     Set<Permission> permissions,
-                     Department department,
+                     UserStatus status, String lastName, String firstName, String middleName,
+                     Set<Permission> permissions, Department department,
                      Set<Long> responsibleForSpecialists) {
-        super(id, username, email, passHash, UserRole.ADMIN, status,
-                lastName, firstName, middleName);
+        super(id, username, email, passHash, UserRole.ADMIN, status, lastName, firstName, middleName);
         this.permissions = permissions != null ? permissions : new HashSet<>();
         this.department = department;
         this.responsibleForSpecialists = responsibleForSpecialists != null
-                ? responsibleForSpecialists
-                : new HashSet<>();
+                ? responsibleForSpecialists : new HashSet<>();
     }
 
-    // Геттеры и сеттеры
-
-    public Set<Permission> getPermissions() {
-        return permissions;
-    }
-
+    public Set<Permission> getPermissions() { return permissions; }
     public void setPermissions(Set<Permission> permissions) {
         this.permissions = permissions != null ? permissions : new HashSet<>();
     }
-
-    public Department getDepartment() {
-        return department;
+    public Department getDepartment() { return department; }
+    public void setDepartment(Department department) { this.department = department; }
+    public Set<Long> getResponsibleForSpecialists() { return responsibleForSpecialists; }
+    public void setResponsibleForSpecialists(Set<Long> values) {
+        this.responsibleForSpecialists = values != null ? values : new HashSet<>();
     }
 
-    public void setDepartment(Department department) {
-        this.department = department;
-    }
-
-    public Set<Long> getResponsibleForSpecialists() {
-        return responsibleForSpecialists;
-    }
-
-    public void setResponsibleForSpecialists(Set<Long> responsibleForSpecialists) {
-        this.responsibleForSpecialists = responsibleForSpecialists != null
-                ? responsibleForSpecialists
-                : new HashSet<>();
-    }
-
-    /**
-     * Добавляет разрешение администратору.
-     */
-    public void addPermission(Permission permission) {
-        if (permission != null) {
-            this.permissions.add(permission);
-        }
-    }
-
-    /**
-     * Убирает разрешение у администратора.
-     */
-    public void removePermission(Permission permission) {
-        this.permissions.remove(permission);
-    }
-
-    /**
-     * Проверяет, есть ли у администратора указанное разрешение.
-     */
-    public boolean hasPermission(Permission permission) {
-        return this.permissions.contains(permission);
-    }
-
-    /**
-     * Закрепляет специалиста за администратором.
-     */
+    public void addPermission(Permission permission) { if (permission != null) permissions.add(permission); }
+    public void removePermission(Permission permission) { permissions.remove(permission); }
+    public boolean hasPermission(Permission permission) { return permissions.contains(permission); }
     public void addResponsibleSpecialist(Long specialistId) {
-        if (specialistId != null) {
-            this.responsibleForSpecialists.add(specialistId);
-        }
+        if (specialistId != null) responsibleForSpecialists.add(specialistId);
     }
+    public void removeResponsibleSpecialist(Long specialistId) { responsibleForSpecialists.remove(specialistId); }
+    public boolean isResponsibleFor(Long specialistId) { return responsibleForSpecialists.contains(specialistId); }
 
-    /**
-     * Снимает специалиста с закрепления.
-     */
-    public void removeResponsibleSpecialist(Long specialistId) {
-        this.responsibleForSpecialists.remove(specialistId);
-    }
-
-    /**
-     * Проверяет, закреплён ли специалист за администратором.
-     */
-    public boolean isResponsibleFor(Long specialistId) {
-        return this.responsibleForSpecialists.contains(specialistId);
-    }
-
-    /**
-     * Возвращает отображаемое имя администратора.
-     */
     @Override
     public String getDisplayName() {
         String fullName = getFullName();
-        if (fullName != null && !fullName.isBlank()) {
-            return "Администратор " + fullName + " (" + getUsername() + ")";
-        }
-        return "Администратор (" + getUsername() + ")";
-    }
-
-    /**
-     * Краткое строковое представление администратора.
-     */
-    @Override
-    public String toString() {
-        return "AdminUser{" +
-                "id=" + getId() +
-                ", username='" + getUsername() + '\'' +
-                ", fullName='" + getFullName() + '\'' +
-                ", email='" + getEmail() + '\'' +
-                ", status=" + getStatus() +
-                ", department=" + department +
-                ", permissions=" + permissions +
-                ", responsibleForSpecialists=" + responsibleForSpecialists +
-                '}';
+        return fullName != null && !fullName.isBlank()
+                ? "Администратор " + fullName + " (" + getUsername() + ")"
+                : "Администратор (" + getUsername() + ")";
     }
 }
