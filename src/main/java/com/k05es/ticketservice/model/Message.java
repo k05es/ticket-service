@@ -1,37 +1,43 @@
 package com.k05es.ticketservice.model;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
 import java.time.LocalDateTime;
-import java.util.Objects;
 
 /**
  * Сообщение в переписке по заявке.
  * Отправителем может быть клиент или специалист.
  */
+@Entity
+@Table(name = "messages")
 public class Message {
 
-    // Уникальный идентификатор сообщения
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    // Текст сообщения
+    @Column(nullable = false, length = 2000)
     private String text;
-
-    // Отправитель
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "sender_id", nullable = false)
     private User sender;
-
-    // Дата и время отправки
+    @Column(name = "sent_at", nullable = false)
     private LocalDateTime sentAt;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "ticket_id", nullable = false)
+    private Ticket ticket;
 
-    /**
-     * Конструктор по умолчанию.
-     * Нужен фреймворкам, которым требуется пустой объект.
-     */
-    protected Message() {
-    }
+    /** Конструктор по умолчанию для JPA. */
+    protected Message() { }
 
-    /**
-     * Конструктор со всеми полями.
-     * Дата отправки устанавливается автоматически.
-     */
+    /** Конструктор для создания сообщения. */
     public Message(Long id, String text, User sender) {
         this.id = id;
         this.text = text;
@@ -39,72 +45,26 @@ public class Message {
         this.sentAt = LocalDateTime.now();
     }
 
-    // Геттеры и сеттеры
-
-    public Long getId() {
-        return id;
+    @PrePersist
+    private void setSentAtIfMissing() {
+        if (sentAt == null) sentAt = LocalDateTime.now();
     }
 
-    public void setId(Long id) {
-        this.id = id;
-    }
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getText() { return text; }
+    public void setText(String text) { this.text = text; }
+    public User getSender() { return sender; }
+    public void setSender(User sender) { this.sender = sender; }
+    public LocalDateTime getSentAt() { return sentAt; }
+    public void setSentAt(LocalDateTime sentAt) { this.sentAt = sentAt; }
+    public Ticket getTicket() { return ticket; }
+    public void setTicket(Ticket ticket) { this.ticket = ticket; }
 
-    public String getText() {
-        return text;
-    }
-
-    public void setText(String text) {
-        this.text = text;
-    }
-
-    public User getSender() {
-        return sender;
-    }
-
-    public void setSender(User sender) {
-        this.sender = sender;
-    }
-
-    public LocalDateTime getSentAt() {
-        return sentAt;
-    }
-
-    public void setSentAt(LocalDateTime sentAt) {
-        this.sentAt = sentAt;
-    }
-
-    /**
-     * Два сообщения равны, если совпадает их ID.
-     */
-    @Override
-    public boolean equals(Object other) {
-        if (this == other) {
-            return true;
-        }
-        if (other instanceof Message otherMessage) {
-            return Objects.equals(id, otherMessage.id);
-        }
-        return false;
-    }
-
-    /**
-     * Хэш считается по ID.
-     */
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
-    }
-
-    /**
-     * Краткое строковое представление сообщения.
-     */
     @Override
     public String toString() {
-        return "Message{" +
-                "id=" + id +
-                ", text='" + text + '\'' +
+        return "Message{" + "id=" + id + ", text='" + text + "'" +
                 ", sender=" + (sender != null ? sender.getUsername() : null) +
-                ", sentAt=" + sentAt +
-                '}';
+                ", sentAt=" + sentAt + '}';
     }
 }
