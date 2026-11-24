@@ -17,13 +17,18 @@ import com.k05es.ticketservice.model.TicketStatus;
 import com.k05es.ticketservice.model.User;
 import com.k05es.ticketservice.repository.TicketRepository;
 import com.k05es.ticketservice.repository.UserRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Реализация TicketService с использованием Spring Data JPA. */
+/** Реализация TicketService с использованием Spring Data JPA, проверками прав доступа и логированием SLF4J. */
+@Slf4j
 @Service
 @Transactional
 public class TicketServiceImpl implements TicketService {
@@ -50,10 +55,15 @@ public class TicketServiceImpl implements TicketService {
             throw new UnauthorizedActionException(
                     "Заблокированный или неактивный клиент не может создавать заявки");
         }
+        enforceCustomerOwnershipIfAuthenticated(savedCustomer);
+
         Ticket ticket = new Ticket(null, title, description, savedCustomer);
         savedCustomer.incrementCreatedTicketCount();
         userRepository.save(savedCustomer);
-        return ticketRepository.save(ticket);
+        Ticket saved = ticketRepository.save(ticket);
+        log.info("Создана заявка id={}, title='{}', customer='{}'",
+                saved.getId(), saved.getTitle(), savedCustomer.getUsername());
+        return saved;
     }
 
     @Override
@@ -62,8 +72,10 @@ public class TicketServiceImpl implements TicketService {
         if (id == null) {
             throw new TicketNotFoundException("Идентификатор заявки не указан");
         }
-        return ticketRepository.findById(id)
+        Ticket ticket = ticketRepository.findById(id)
                 .orElseThrow(() -> TicketNotFoundException.byId(id));
+        enforceTicketReadAccess(ticket);
+        return ticket;
     }
 
     @Override
@@ -72,54 +84,81 @@ public class TicketServiceImpl implements TicketService {
         if (email == null || email.isBlank()) {
             return List.of();
         }
-        return ticketRepository.searchTickets(null, null, null, email.trim());
+        return filterTicketsForCurrentUser(
+                ticketRepository.searchTickets(null, null, null, email.trim()));
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<Ticket> findTicketsByStatus(TicketStatus status) {
-        return status == null ? List.of() : ticketRepository.findByStatus(status);
+        if (status == null) {
+            return List.of();
+        }
+        return filterTicketsForCurrentUser(ticketRepository.findByStatus(status));
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<Ticket> findTicketsByCustomer(Long customerId) {
-        return customerId == null ? List.of() : ticketRepository.findByCustomerId(customerId);
+        if (customerId == null) {
+            return List.of();
+        }
+        return filterTicketsForCurrentUser(ticketRepository.findByCustomerId(customerId));
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<Ticket> findTicketsBySpecialist(Long specialistId) {
-        return specialistId == null ? List.of() : ticketRepository.findBySpecialistId(specialistId);
+        if (specialistId == null) {
+            return List.of();
+        }
+        return filterTicketsForCurrentUser(ticketRepository.findBySpecialistId(specialistId));
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<Ticket> searchTickets(TicketStatus status, Long customerId, Long specialistId, String customerEmail) {
         String normalizedEmail = customerEmail == null || customerEmail.isBlank() ? null : customerEmail.trim();
-        return ticketRepository.searchTickets(status, customerId, specialistId, normalizedEmail);
+        User currentUser = getCurrentAuthenticatedUserOrNull();
+        if (currentUser != null && currentUser instanceof CustomerUser currentCustomer) {
+            if (customerId != null && !customerId.equals(currentCustomer.getId())) {
+                log.warn("Клиент '{}' пытался запросить заявки другого клиента id={}",
+                        currentCustomer.getUsername(), customerId);
+                throw new UnauthorizedActionException("Клиент может просматривать только собственные заявки.");
+            }
+            if (normalizedEmail != null && !normalizedEmail.equalsIgnoreCase(currentCustomer.getEmail())) {
+                log.warn("Клиент '{}' пытался запросить заявки по чужому email '{}'",
+                        currentCustomer.getUsername(), normalizedEmail);
+                throw new UnauthorizedActionException("Клиент может просматривать только собственные заявки.");
+            }
+            return ticketRepository.searchTickets(status, currentCustomer.getId(), specialistId, null);
+        }
+        return filterTicketsForCurrentUser(
+                ticketRepository.searchTickets(status, customerId, specialistId, normalizedEmail));
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<Ticket> getAllTickets() {
-        return ticketRepository.findAll();
+        return filterTicketsForCurrentUser(ticketRepository.findAll());
     }
 
     @Override
     public Ticket updateTicket(Long id, UpdateTicketRequest request) {
         Ticket ticket = ticketRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> TicketNotFoundException.byId(id));
+        enforceCustomerOwnershipIfAuthenticated(ticket.getCustomer());
         if (!ticket.isPending()) {
             throw new InvalidTicketStateException(
                     "Изменять можно только заявку в статусе PENDING (текущий статус: " + ticket.getStatus() + ")");
         }
         ticket.setTitle(request.getTitle());
         ticket.setDescription(request.getDescription());
-        return ticketRepository.save(ticket);
+        Ticket saved = ticketRepository.save(ticket);
+        log.info("Обновлена заявка id={}", saved.getId());
+        return saved;
     }
 
-    /** Блокировка строки заявки исключает двойное назначение несколькими потоками. */
     @Override
     public boolean assignTicketToSpecialist(Long ticketId, SpecialistUser specialist) {
         if (ticketId == null || specialist == null || specialist.getId() == null) {
@@ -133,6 +172,8 @@ public class TicketServiceImpl implements TicketService {
             throw new UserNotFoundException(
                     "Пользователь с ID " + specialist.getId() + " не является специалистом");
         }
+        enforceSpecialistSelfAssignmentIfAuthenticated(savedSpecialist);
+
         if (!ticket.isPending()) {
             throw new InvalidTicketStateException(
                     "Заявка уже взята в работу или закрыта (текущий статус: " + ticket.getStatus() + ")");
@@ -144,6 +185,7 @@ public class TicketServiceImpl implements TicketService {
         savedSpecialist.incrementActiveTicketCount();
         ticketRepository.save(ticket);
         userRepository.save(savedSpecialist);
+        log.info("Заявка id={} назначена специалисту '{}'", ticketId, savedSpecialist.getUsername());
         return true;
     }
 
@@ -164,11 +206,15 @@ public class TicketServiceImpl implements TicketService {
             throw new UserNotFoundException(
                     "Специалист заявки с ID " + ticket.getSpecialist().getId() + " не найден");
         }
+        enforceSpecialistOwnershipIfAuthenticated(specialist);
+
         ticket.complete();
         specialist.decrementActiveTicketCount();
         specialist.registerCompletedTicket(rating);
         ticketRepository.save(ticket);
         userRepository.save(specialist);
+        log.info("Заявка id={} завершена специалистом '{}' с оценкой {}",
+                ticketId, specialist.getUsername(), rating);
         return true;
     }
 
@@ -176,6 +222,7 @@ public class TicketServiceImpl implements TicketService {
     public boolean cancelTicket(Long ticketId) {
         Ticket ticket = ticketRepository.findByIdForUpdate(ticketId)
                 .orElseThrow(() -> TicketNotFoundException.byId(ticketId));
+        enforceTicketParticipantIfAuthenticated(ticket);
         if (ticket.isClosed()) {
             throw new InvalidTicketStateException(
                     "Заявка уже закрыта (текущий статус: " + ticket.getStatus() + ")");
@@ -192,6 +239,7 @@ public class TicketServiceImpl implements TicketService {
         }
         ticket.cancel();
         ticketRepository.save(ticket);
+        log.info("Заявка id={} отменена", ticketId);
         return true;
     }
 
@@ -204,6 +252,8 @@ public class TicketServiceImpl implements TicketService {
                 .orElseThrow(() -> TicketNotFoundException.byId(ticketId));
         User savedSender = userRepository.findByIdForUpdate(sender.getId())
                 .orElseThrow(() -> UserNotFoundException.byId(sender.getId()));
+        enforceSenderMatchesAuthenticatedUserIfPresent(savedSender);
+
         if (!savedSender.isActive()) {
             throw new UnauthorizedActionException(
                     "Неактивный пользователь не может отправлять сообщения");
@@ -223,6 +273,7 @@ public class TicketServiceImpl implements TicketService {
         }
         ticket.addMessage(savedSender, text.trim());
         ticketRepository.save(ticket);
+        log.info("Добавлено сообщение в заявку id={} от пользователя '{}'", ticketId, savedSender.getUsername());
         return true;
     }
 
@@ -255,6 +306,7 @@ public class TicketServiceImpl implements TicketService {
             }
         }
         ticketRepository.delete(ticket);
+        log.info("Удалена заявка id={}", id);
         return true;
     }
 
@@ -293,5 +345,121 @@ public class TicketServiceImpl implements TicketService {
     @Transactional(readOnly = true)
     public boolean hasPendingTickets() {
         return !ticketRepository.findByStatus(TicketStatus.PENDING).isEmpty();
+    }
+
+    private User getCurrentAuthenticatedUserOrNull() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || "anonymousUser".equals(authentication.getPrincipal())) {
+            return null;
+        }
+        String username = authentication.getName();
+        if (username == null || username.isBlank()) {
+            return null;
+        }
+        return userRepository.findByUsernameIgnoreCase(username.trim());
+    }
+
+    private void enforceCustomerOwnershipIfAuthenticated(CustomerUser targetCustomer) {
+        User currentUser = getCurrentAuthenticatedUserOrNull();
+        if (currentUser instanceof CustomerUser currentCustomer) {
+            if (targetCustomer.getId() != null && !targetCustomer.getId().equals(currentCustomer.getId())) {
+                log.warn("Клиент '{}' пытался выполнить операцию от имени клиента id={}",
+                        currentCustomer.getUsername(), targetCustomer.getId());
+                throw new UnauthorizedActionException("Клиент может создавать и изменять только собственные заявки.");
+            }
+        }
+    }
+
+    private void enforceSpecialistSelfAssignmentIfAuthenticated(SpecialistUser targetSpecialist) {
+        User currentUser = getCurrentAuthenticatedUserOrNull();
+        if (currentUser instanceof SpecialistUser currentSpecialist) {
+            if (targetSpecialist.getId() != null && !targetSpecialist.getId().equals(currentSpecialist.getId())) {
+                log.warn("Специалист '{}' пытался назначить заявку другому специалисту id={}",
+                        currentSpecialist.getUsername(), targetSpecialist.getId());
+                throw new UnauthorizedActionException("Специалист может назначать заявку только на себя.");
+            }
+        }
+    }
+
+    private void enforceSpecialistOwnershipIfAuthenticated(SpecialistUser assignedSpecialist) {
+        User currentUser = getCurrentAuthenticatedUserOrNull();
+        if (currentUser instanceof SpecialistUser currentSpecialist) {
+            if (assignedSpecialist.getId() != null && !assignedSpecialist.getId().equals(currentSpecialist.getId())) {
+                log.warn("Специалист '{}' пытался завершить чужую заявку (назначен '{}')",
+                        currentSpecialist.getUsername(), assignedSpecialist.getUsername());
+                throw new UnauthorizedActionException("Завершить заявку может только назначенный на неё специалист или администратор.");
+            }
+        }
+    }
+
+    private void enforceTicketParticipantIfAuthenticated(Ticket ticket) {
+        User currentUser = getCurrentAuthenticatedUserOrNull();
+        if (currentUser == null || currentUser instanceof AdminUser) {
+            return;
+        }
+        boolean isOwner = ticket.getCustomer() != null
+                && ticket.getCustomer().getId() != null
+                && ticket.getCustomer().getId().equals(currentUser.getId());
+        boolean isAssigned = ticket.getSpecialist() != null
+                && ticket.getSpecialist().getId() != null
+                && ticket.getSpecialist().getId().equals(currentUser.getId());
+        if (!isOwner && !isAssigned) {
+            log.warn("Пользователь '{}' пытался отменить чужую заявку id={}",
+                    currentUser.getUsername(), ticket.getId());
+            throw new UnauthorizedActionException("Недостаточно прав для отмены этой заявки.");
+        }
+    }
+
+    private void enforceTicketReadAccess(Ticket ticket) {
+        User currentUser = getCurrentAuthenticatedUserOrNull();
+        if (currentUser == null || currentUser instanceof AdminUser) {
+            return;
+        }
+        boolean isCustomerOwner = currentUser instanceof CustomerUser
+                && ticket.getCustomer() != null
+                && ticket.getCustomer().getId() != null
+                && ticket.getCustomer().getId().equals(currentUser.getId());
+        boolean isAssignedSpecialist = currentUser instanceof SpecialistUser
+                && ticket.getSpecialist() != null
+                && ticket.getSpecialist().getId() != null
+                && ticket.getSpecialist().getId().equals(currentUser.getId());
+        if (!isCustomerOwner && !isAssignedSpecialist) {
+            log.warn("Пользователь '{}' пытался просмотреть заявку id={}, к которой не имеет доступа",
+                    currentUser.getUsername(), ticket.getId());
+            throw new UnauthorizedActionException("Недостаточно прав для просмотра этой заявки.");
+        }
+    }
+
+    private void enforceSenderMatchesAuthenticatedUserIfPresent(User sender) {
+        User currentUser = getCurrentAuthenticatedUserOrNull();
+        if (currentUser == null) {
+            return;
+        }
+        if (sender.getId() != null && !sender.getId().equals(currentUser.getId())) {
+            log.warn("Пользователь '{}' пытался отправить сообщение от имени пользователя id={}",
+                    currentUser.getUsername(), sender.getId());
+            throw new UnauthorizedActionException("Нельзя отправлять сообщения от имени другого пользователя.");
+        }
+    }
+
+    private List<Ticket> filterTicketsForCurrentUser(List<Ticket> tickets) {
+        User currentUser = getCurrentAuthenticatedUserOrNull();
+        if (currentUser == null || currentUser instanceof AdminUser) {
+            return tickets;
+        }
+        List<Ticket> filtered = new ArrayList<Ticket>();
+        for (Ticket ticket : tickets) {
+            if (currentUser instanceof CustomerUser) {
+                if (ticket.getCustomer() != null && currentUser.getId().equals(ticket.getCustomer().getId())) {
+                    filtered.add(ticket);
+                }
+            } else if (currentUser instanceof SpecialistUser) {
+                if (ticket.getSpecialist() != null && currentUser.getId().equals(ticket.getSpecialist().getId())) {
+                    filtered.add(ticket);
+                }
+            }
+        }
+        return filtered;
     }
 }

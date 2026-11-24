@@ -1,55 +1,38 @@
 package com.k05es.ticketservice.concurrent;
 
+import com.k05es.ticketservice.exception.ResourceConflictException;
+import com.k05es.ticketservice.exception.ResourceNotFoundException;
 import com.k05es.ticketservice.model.SpecialistUser;
 import com.k05es.ticketservice.model.Ticket;
 import com.k05es.ticketservice.model.User;
 import com.k05es.ticketservice.model.UserRole;
 import com.k05es.ticketservice.service.TicketService;
 import com.k05es.ticketservice.service.UserService;
-
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import lombok.extern.slf4j.Slf4j;
 
-/**
- * Многопоточный обработчик очереди заявок.
- */
+/** Многопоточный обработчик очереди заявок с логированием через SLF4J. */
+@Slf4j
 public class TicketQueueProcessor {
 
-    // Сколько секунд ждать заявку из очереди
     private static final long POLL_TIMEOUT_SECONDS = 1;
 
-    // Сколько потоков работает одновременно
     private final int workerCount;
-
-    // Сервис заявок
     private final TicketService ticketService;
-
-    // Сервис пользователей
     private final UserService userService;
-
-    // Пул потоков
     private final ExecutorService executor;
-
-    // Флаг работы
     private volatile boolean running = false;
-
-    // Генератор случайных задержек и оценок
     private final Random random = new Random();
-
-    // Сколько заявок обработано
     private final AtomicInteger processedCount = new AtomicInteger(0);
-
-    // Счётчик для чередования специалистов (round-robin)
     private final AtomicInteger counter = new AtomicInteger(0);
-
-    // Идентификаторы заявок, которые уже забирает один из воркеров.
     private final Set<Long> claimedTicketIds = ConcurrentHashMap.newKeySet();
 
     public TicketQueueProcessor(TicketService ticketService,
@@ -61,25 +44,23 @@ public class TicketQueueProcessor {
         this.executor = Executors.newFixedThreadPool(workerCount, new WorkerFactory());
     }
 
-    // Запускает воркеры
     public void start() {
         running = true;
-        System.out.println("[Processor] Запуск обработчика, потоков: " + workerCount);
+        log.info("[Processor] Запуск обработчика, потоков: {}", workerCount);
 
         for (int i = 0; i < workerCount; i++) {
             executor.submit(new TicketWorker());
         }
     }
 
-    // Останавливает воркеры
     public void stop(int timeoutSeconds) {
         running = false;
-        System.out.println("[Processor] Остановка.");
+        log.info("[Processor] Остановка.");
 
         executor.shutdown();
         try {
             if (!executor.awaitTermination(timeoutSeconds, TimeUnit.SECONDS)) {
-                System.out.println("[Processor] Принудительное завершение потоков.");
+                log.warn("[Processor] Принудительное завершение потоков.");
                 executor.shutdownNow();
             }
         } catch (InterruptedException e) {
@@ -87,15 +68,13 @@ public class TicketQueueProcessor {
             executor.shutdownNow();
         }
 
-        System.out.println("[Processor] Обработано заявок: " + processedCount.get());
+        log.info("[Processor] Обработано заявок: {}", processedCount.get());
     }
 
-    // Проверяет, что очередь пуста
     public boolean isQueueEmpty() {
         return !ticketService.hasPendingTickets();
     }
 
-    // Фабрика потоков с именами TicketWorker-1, TicketWorker-2, ...
     private static class WorkerFactory implements ThreadFactory {
 
         private final AtomicInteger counter = new AtomicInteger(1);
@@ -108,13 +87,12 @@ public class TicketQueueProcessor {
         }
     }
 
-    // Задача одного воркера
     private class TicketWorker implements Runnable {
 
         @Override
         public void run() {
             String name = Thread.currentThread().getName();
-            System.out.println("[" + name + "] Стартовал.");
+            log.info("[{}] Стартовал.", name);
 
             while (running) {
                 SpecialistUser specialist = findAvailableSpecialist();
@@ -128,10 +106,9 @@ public class TicketQueueProcessor {
                 }
             }
 
-            System.out.println("[" + name + "] Завершил работу.");
+            log.info("[{}] Завершил работу.", name);
         }
 
-        // Берёт заявку из очереди
         private Ticket takeTicket() {
             try {
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(POLL_TIMEOUT_SECONDS);
@@ -152,42 +129,48 @@ public class TicketQueueProcessor {
             }
         }
 
-        // Обрабатывает заявку
         private void processTicket(Ticket ticket, SpecialistUser specialist, String workerName) {
-            System.out.println("[" + workerName + "] Взял заявку #" + ticket.getId()
-                    + ": \"" + ticket.getTitle() + "\""
-                    + " (заказчик: " + ticket.getCustomer().getUsername() + ")");
+            log.info("[{}] Взял заявку #{}: "{}" (заказчик: {})",
+                    workerName, ticket.getId(), ticket.getTitle(), ticket.getCustomer().getUsername());
 
+            boolean assigned = false;
             try {
-                ticketService.assignTicketToSpecialist(ticket.getId(), specialist);
+                assigned = ticketService.assignTicketToSpecialist(ticket.getId(), specialist);
+            } catch (ResourceConflictException | ResourceNotFoundException exception) {
+                log.warn("[{}] Не удалось назначить заявку #{} специалисту {}: {}",
+                        workerName, ticket.getId(), specialist.getUsername(), exception.getMessage());
+                claimedTicketIds.remove(ticket.getId());
+                return;
             } catch (RuntimeException exception) {
-                // Снимаем резервирование: заявка остаётся доступной, если назначение не состоялось.
+                log.error("[{}] Ошибка при назначении заявки #{} специалисту {}",
+                        workerName, ticket.getId(), specialist.getUsername(), exception);
+                claimedTicketIds.remove(ticket.getId());
+                return;
+            }
+
+            if (!assigned) {
                 claimedTicketIds.remove(ticket.getId());
                 return;
             }
 
             try {
-                System.out.println("[" + workerName + "] Назначен специалист "
-                        + specialist.getUsername() + " на заявку #" + ticket.getId());
+                log.info("[{}] Назначен специалист {} на заявку #{}",
+                        workerName, specialist.getUsername(), ticket.getId());
 
-                // Имитация работы: 500–1000 мс
                 sleep(500 + random.nextInt(500));
 
-                // Клиент оставляет сообщение, пока заявка в работе
                 if (ticketService.addMessageToTicket(
                         ticket.getId(),
                         ticket.getCustomer(),
                         "Спасибо за оперативное решение!")) {
-                    System.out.println("[" + workerName + "] Добавлено сообщение в заявку #"
-                            + ticket.getId());
+                    log.info("[{}] Добавлено сообщение в заявку #{}", workerName, ticket.getId());
                 }
 
-                // Оценка от 4.0 до 5.0
                 double rating = 4.0 + random.nextInt(11) / 10.0;
                 if (ticketService.completeTicket(ticket.getId(), rating)) {
-                    System.out.println("[" + workerName + "] Завершил заявку #" + ticket.getId()
-                            + " (" + specialist.getUsername() + " - оценка "
-                            + String.format("%.1f", rating) + ")");
+                    log.info("[{}] Завершил заявку #{} ({} - оценка {})",
+                            workerName, ticket.getId(), specialist.getUsername(),
+                            String.format("%.1f", rating));
                     processedCount.incrementAndGet();
                 }
             } finally {
@@ -195,8 +178,6 @@ public class TicketQueueProcessor {
             }
         }
 
-        // Выбирает специалиста по кругу (round-robin).
-        // Гарантирует, что оба специалиста получат заявки.
         private SpecialistUser findAvailableSpecialist() {
             List<User> specialists = userService.findUsersByRole(UserRole.SPECIALIST);
             List<SpecialistUser> availableSpecialists = specialists.stream()
@@ -211,7 +192,6 @@ public class TicketQueueProcessor {
             return availableSpecialists.get(index);
         }
 
-        // Спит без выброса исключения
         private void sleep(long millis) {
             try {
                 Thread.sleep(millis);

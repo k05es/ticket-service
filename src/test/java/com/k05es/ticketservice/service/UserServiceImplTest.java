@@ -21,11 +21,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -35,6 +37,8 @@ class UserServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private PasswordEncoder passwordEncoder;
     @InjectMocks
     private UserServiceImpl userService;
 
@@ -42,6 +46,7 @@ class UserServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(passwordEncoder.encode(any())).thenAnswer(invocation -> "$2a$encoded$" + invocation.getArgument(0));
         customer = new CustomerUser(10L, "client", "client@example.test", "hash",
                 UserStatus.ACTIVE, "Иванов", "Иван", null,
                 "+79001234567", null, null, null, 2);

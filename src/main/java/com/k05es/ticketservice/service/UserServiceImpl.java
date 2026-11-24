@@ -3,6 +3,7 @@ package com.k05es.ticketservice.service;
 import com.k05es.ticketservice.dto.request.UpdateUserRequest;
 import com.k05es.ticketservice.exception.DuplicateResourceException;
 import com.k05es.ticketservice.exception.InvalidRequestException;
+import com.k05es.ticketservice.exception.UnauthorizedActionException;
 import com.k05es.ticketservice.exception.UserHasDependenciesException;
 import com.k05es.ticketservice.exception.UserNotFoundException;
 import com.k05es.ticketservice.model.AdminUser;
@@ -15,18 +16,25 @@ import com.k05es.ticketservice.repository.UserRepository;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Реализация UserService с использованием Spring Data JPA. */
+/** Реализация UserService с использованием Spring Data JPA, BCrypt и логированием SLF4J. */
+@Slf4j
 @Service
 @Transactional
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserServiceImpl(UserRepository userRepository) {
+    public UserServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Override
@@ -40,6 +48,11 @@ public class UserServiceImpl implements UserService {
         if (user.getEmail() == null || user.getEmail().isBlank()) {
             throw new InvalidRequestException("Email не может быть пустым");
         }
+        if (user.getPassHash() == null || user.getPassHash().isBlank()) {
+            throw new InvalidRequestException("Пароль не может быть пустым");
+        }
+        validateUserRoleAndType(user);
+
         String normalizedUsername = user.getUsername().trim().toLowerCase(Locale.ROOT);
         String normalizedEmail = user.getEmail().trim().toLowerCase(Locale.ROOT);
         if (userRepository.existsByUsernameIgnoreCase(normalizedUsername)) {
@@ -50,10 +63,14 @@ public class UserServiceImpl implements UserService {
         }
         user.setUsername(normalizedUsername);
         user.setEmail(normalizedEmail);
+        user.setPassHash(encodeIfNeeded(user.getPassHash()));
         if (user instanceof AdminUser admin) {
             validateResponsibleSpecialists(admin.getResponsibleForSpecialists());
         }
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        log.info("Зарегистрирован пользователь id={}, username='{}', role={}",
+                saved.getId(), saved.getUsername(), saved.getRole());
+        return saved;
     }
 
     @Override
@@ -62,8 +79,10 @@ public class UserServiceImpl implements UserService {
         if (id == null) {
             throw new UserNotFoundException("Идентификатор пользователя не указан");
         }
-        return userRepository.findById(id)
+        User target = userRepository.findById(id)
                 .orElseThrow(() -> UserNotFoundException.byId(id));
+        enforceProfileAccess(target);
+        return target;
     }
 
     @Override
@@ -107,8 +126,13 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User updateUser(Long id, UpdateUserRequest request) {
+        if (request == null) {
+            throw new InvalidRequestException("Запрос на обновление пользователя не может быть null");
+        }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> UserNotFoundException.byId(id));
+        validateUserRoleAndType(user);
+
         if (request.getUsername() != null) {
             String username = request.getUsername().trim().toLowerCase(Locale.ROOT);
             if (username.isBlank()) {
@@ -174,7 +198,10 @@ public class UserServiceImpl implements UserService {
                 admin.setResponsibleForSpecialists(request.getResponsibleForSpecialists());
             }
         }
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        log.info("Обновлён пользователь id={}, username='{}', status={}",
+                saved.getId(), saved.getUsername(), saved.getStatus());
+        return saved;
     }
 
     @Override
@@ -189,7 +216,52 @@ public class UserServiceImpl implements UserService {
                             + ", связанного с заявками, сообщениями или администраторами");
         }
         userRepository.deleteById(id);
+        log.info("Удалён пользователь id={}", id);
         return true;
+    }
+
+    private void validateUserRoleAndType(User user) {
+        UserRole expectedRole;
+        if (user instanceof AdminUser) {
+            expectedRole = UserRole.ADMIN;
+        } else if (user instanceof SpecialistUser) {
+            expectedRole = UserRole.SPECIALIST;
+        } else if (user instanceof CustomerUser) {
+            expectedRole = UserRole.CUSTOMER;
+        } else {
+            throw new InvalidRequestException("Неизвестный тип пользователя");
+        }
+        if (user.getRole() != null && user.getRole() != expectedRole) {
+            throw new InvalidRequestException(
+                    "Роль " + user.getRole() + " не соответствует типу пользователя " + expectedRole);
+        }
+        user.setRole(expectedRole);
+    }
+
+    private void enforceProfileAccess(User target) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || "anonymousUser".equals(authentication.getPrincipal())) {
+            return;
+        }
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()));
+        if (isAdmin) {
+            return;
+        }
+        String currentUsername = authentication.getName();
+        if (target.getUsername() == null || !target.getUsername().equalsIgnoreCase(currentUsername)) {
+            log.warn("Пользователь '{}' пытался просмотреть чужой профиль id={}",
+                    currentUsername, target.getId());
+            throw new UnauthorizedActionException("Недостаточно прав для просмотра чужого профиля пользователя.");
+        }
+    }
+
+    private String encodeIfNeeded(String rawOrEncoded) {
+        if (rawOrEncoded.startsWith("$2a$") || rawOrEncoded.startsWith("$2b$") || rawOrEncoded.startsWith("$2y$")) {
+            return rawOrEncoded;
+        }
+        return passwordEncoder.encode(rawOrEncoded);
     }
 
     private void validateResponsibleSpecialists(Set<Long> specialistIds) {

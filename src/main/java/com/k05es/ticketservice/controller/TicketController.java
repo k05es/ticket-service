@@ -15,11 +15,14 @@ import com.k05es.ticketservice.model.TicketStatus;
 import com.k05es.ticketservice.model.User;
 import com.k05es.ticketservice.service.TicketService;
 import com.k05es.ticketservice.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,9 +34,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
-/** REST-контроллер для CRUD-операций с заявками. */
+/** REST-контроллер для CRUD-операций с заявками и разграничением доступа по ролям. */
 @RestController
 @RequestMapping("/api/tickets")
+@Tag(name = "Tickets", description = "Управление заявками с разграничением прав по ролям")
 public class TicketController {
 
     private final TicketService ticketService;
@@ -47,6 +51,8 @@ public class TicketController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'ADMIN')")
+    @Operation(summary = "Создать заявку (CUSTOMER, ADMIN)")
     public ResponseEntity<TicketResponse> createTicket(@Valid @RequestBody CreateTicketRequest request) {
         User foundCustomer = userService.findUserById(request.getCustomerId());
         if (!(foundCustomer instanceof CustomerUser customer)) {
@@ -61,6 +67,7 @@ public class TicketController {
     }
 
     @GetMapping
+    @Operation(summary = "Получить список заявок с фильтрацией (аутентифицированные пользователи)")
     public List<TicketResponse> getTickets(@RequestParam(required = false) TicketStatus status,
                                            @RequestParam(required = false) Long customerId,
                                            @RequestParam(required = false) Long specialistId,
@@ -74,16 +81,21 @@ public class TicketController {
     }
 
     @GetMapping("/{id}")
+    @Operation(summary = "Получить заявку по ID (аутентифицированные пользователи)")
     public TicketResponse getTicket(@PathVariable Long id) {
         return ticketMapper.toResponse(ticketService.findTicketById(id));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'ADMIN')")
+    @Operation(summary = "Изменить заявку в статусе PENDING (CUSTOMER, ADMIN)")
     public TicketResponse updateTicket(@PathVariable Long id, @Valid @RequestBody UpdateTicketRequest request) {
         return ticketMapper.toResponse(ticketService.updateTicket(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Удалить заявку (только ADMIN)")
     public ResponseEntity<Void> deleteTicket(@PathVariable Long id) {
         if (!ticketService.deleteTicket(id)) {
             throw TicketNotFoundException.byId(id);
@@ -92,6 +104,8 @@ public class TicketController {
     }
 
     @PostMapping("/{id}/assign/{specialistId}")
+    @PreAuthorize("hasAnyRole('SPECIALIST', 'ADMIN')")
+    @Operation(summary = "Назначить специалиста на заявку (SPECIALIST, ADMIN)")
     public TicketResponse assignTicket(@PathVariable Long id, @PathVariable Long specialistId) {
         User foundSpecialist = userService.findUserById(specialistId);
         if (!(foundSpecialist instanceof SpecialistUser specialist)) {
@@ -102,6 +116,8 @@ public class TicketController {
     }
 
     @PostMapping("/{id}/complete")
+    @PreAuthorize("hasAnyRole('SPECIALIST', 'ADMIN')")
+    @Operation(summary = "Завершить заявку и выставить оценку (SPECIALIST, ADMIN)")
     public TicketResponse completeTicket(@PathVariable Long id,
                                          @Valid @RequestBody CompleteTicketRequest request) {
         ticketService.completeTicket(id, request.getRating());
@@ -109,12 +125,15 @@ public class TicketController {
     }
 
     @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'SPECIALIST', 'ADMIN')")
+    @Operation(summary = "Отменить заявку (CUSTOMER, SPECIALIST, ADMIN)")
     public TicketResponse cancelTicket(@PathVariable Long id) {
         ticketService.cancelTicket(id);
         return ticketMapper.toResponse(ticketService.findTicketById(id));
     }
 
     @PostMapping("/{id}/messages")
+    @Operation(summary = "Добавить сообщение в заявку (аутентифицированные участники)")
     public TicketResponse addMessage(@PathVariable Long id, @Valid @RequestBody CreateMessageRequest request) {
         User sender = userService.findUserById(request.getSenderId());
         ticketService.addMessageToTicket(id, sender, request.getText());

@@ -9,11 +9,14 @@ import com.k05es.ticketservice.model.User;
 import com.k05es.ticketservice.model.UserRole;
 import com.k05es.ticketservice.model.UserStatus;
 import com.k05es.ticketservice.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,9 +28,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
-/** REST-контроллер для CRUD-операций с пользователями. */
+/** REST-контроллер для CRUD-операций с пользователями (управление ролями доступно ADMIN). */
 @RestController
 @RequestMapping("/api/users")
+@Tag(name = "Users", description = "Управление пользователями и ролями (ADMIN)")
 public class UserController {
 
     private final UserService userService;
@@ -39,6 +43,8 @@ public class UserController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Создать пользователя (только ADMIN)")
     public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
         User created = userService.registerUser(userMapper.toEntity(request));
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
@@ -49,6 +55,8 @@ public class UserController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Получить список пользователей с фильтрацией (только ADMIN)")
     public List<UserResponse> getUsers(@RequestParam(required = false) UserRole role,
                                        @RequestParam(required = false) UserStatus status,
                                        @RequestParam(required = false) String username,
@@ -62,16 +70,21 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
+    @Operation(summary = "Получить пользователя по ID (аутентифицированные пользователи)")
     public UserResponse getUser(@PathVariable Long id) {
         return userMapper.toResponse(userService.findUserById(id));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Обновить профиль пользователя (только ADMIN)")
     public UserResponse updateUser(@PathVariable Long id, @Valid @RequestBody UpdateUserRequest request) {
         return userMapper.toResponse(userService.updateUser(id, request));
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Удалить пользователя по ID (только ADMIN)")
     public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
         if (!userService.deleteUser(id)) {
             throw UserNotFoundException.byId(id);
