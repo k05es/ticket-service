@@ -130,7 +130,7 @@ public class TicketQueueProcessor {
         }
 
         private void processTicket(Ticket ticket, SpecialistUser specialist, String workerName) {
-            log.info("[{}] Взял заявку #{}: "{}" (заказчик: {})",
+            log.info("[{}] Взял заявку #{}: '{}' (заказчик: {})",
                     workerName, ticket.getId(), ticket.getTitle(), ticket.getCustomer().getUsername());
 
             boolean assigned = false;
