@@ -1,5 +1,6 @@
 package com.k05es.ticketservice.model;
 
+import com.k05es.ticketservice.exception.InvalidDomainValueException;
 import jakarta.persistence.Column;
 import jakarta.persistence.DiscriminatorValue;
 import jakarta.persistence.Entity;
@@ -49,9 +50,9 @@ public class CustomerUser extends User {
 
     public String getPhone() { return phone; }
     public void setPhone(String phone) {
-        if (phone == null || phone.isBlank()) throw new IllegalArgumentException("Телефон обязателен");
+        if (phone == null || phone.isBlank()) throw new InvalidDomainValueException("Телефон обязателен");
         if (!PHONE_PATTERN.matcher(phone).matches()) {
-            throw new IllegalArgumentException("Телефон должен быть в формате +7XXXXXXXXXX: " + phone);
+            throw new InvalidDomainValueException("Телефон должен быть в формате +7XXXXXXXXXX: " + phone);
         }
         this.phone = phone;
     }

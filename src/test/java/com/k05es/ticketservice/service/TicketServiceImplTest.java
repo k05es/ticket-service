@@ -1,7 +1,10 @@
 package com.k05es.ticketservice.service;
 
-import com.k05es.ticketservice.exception.ResourceConflictException;
-import com.k05es.ticketservice.exception.ResourceNotFoundException;
+import com.k05es.ticketservice.exception.SpecialistUnavailableException;
+import com.k05es.ticketservice.exception.CompletedTicketDeletionException;
+import com.k05es.ticketservice.exception.InvalidTicketStateException;
+import com.k05es.ticketservice.exception.TicketNotFoundException;
+import com.k05es.ticketservice.exception.UnauthorizedActionException;
 import com.k05es.ticketservice.model.AdminUser;
 import com.k05es.ticketservice.model.CustomerUser;
 import com.k05es.ticketservice.model.Department;
@@ -13,6 +16,7 @@ import com.k05es.ticketservice.model.User;
 import com.k05es.ticketservice.model.UserStatus;
 import com.k05es.ticketservice.repository.TicketRepository;
 import com.k05es.ticketservice.repository.UserRepository;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -84,13 +88,13 @@ class TicketServiceImplTest {
     }
 
     @Test
-    @DisplayName("Повторное назначение одной заявки отклоняется")
+    @DisplayName("Повторное назначение одной заявки отклоняется с InvalidTicketStateException")
     void assignTicketRejectsAlreadyAssignedTicket() {
         ticket.assignToSpecialist(specialist);
         when(ticketRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByIdForUpdate(2L)).thenReturn(Optional.<User>of(specialist));
 
-        assertThrows(ResourceConflictException.class,
+        assertThrows(InvalidTicketStateException.class,
                 () -> ticketService.assignTicketToSpecialist(20L, specialist));
         verify(ticketRepository, never()).save(any(Ticket.class));
     }
@@ -118,7 +122,7 @@ class TicketServiceImplTest {
     void createTicketRejectsInactiveCustomer() {
         customer.block();
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.<User>of(customer));
-        assertThrows(ResourceConflictException.class,
+        assertThrows(UnauthorizedActionException.class,
                 () -> ticketService.createTicket("Новая заявка", "Описание", customer));
         verify(ticketRepository, never()).save(any(Ticket.class));
     }
@@ -132,7 +136,7 @@ class TicketServiceImplTest {
         when(ticketRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByIdForUpdate(3L)).thenReturn(Optional.<User>of(otherCustomer));
 
-        assertThrows(ResourceConflictException.class,
+        assertThrows(UnauthorizedActionException.class,
                 () -> ticketService.addMessageToTicket(20L, otherCustomer, "Постороннее сообщение"));
         verify(ticketRepository, never()).save(any(Ticket.class));
     }
@@ -150,7 +154,6 @@ class TicketServiceImplTest {
         assertEquals("Уточнение по заявке", ticket.getMessages().get(0).getText());
     }
 
-
     @Test
     @DisplayName("Администратор без разрешения MANAGE_TICKETS не может писать в заявку")
     void addMessageRejectsAdminWithoutPermission() {
@@ -159,7 +162,7 @@ class TicketServiceImplTest {
                 Set.of(Permission.VIEW_REPORTS), Department.GENERAL_SUPPORT, Set.of());
         when(ticketRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByIdForUpdate(4L)).thenReturn(Optional.<User>of(admin));
-        assertThrows(ResourceConflictException.class,
+        assertThrows(UnauthorizedActionException.class,
                 () -> ticketService.addMessageToTicket(20L, admin, "Сообщение администратора"));
         verify(ticketRepository, never()).save(any(Ticket.class));
     }
@@ -194,12 +197,12 @@ class TicketServiceImplTest {
     }
 
     @Test
-    @DisplayName("Завершённую заявку нельзя удалить, чтобы не исказить статистику")
+    @DisplayName("Завершённую заявку нельзя удалить с CompletedTicketDeletionException")
     void deleteTicketRejectsCompletedTicket() {
         ticket.assignToSpecialist(specialist);
         ticket.complete();
         when(ticketRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(ticket));
-        assertThrows(ResourceConflictException.class, () -> ticketService.deleteTicket(20L));
+        assertThrows(CompletedTicketDeletionException.class, () -> ticketService.deleteTicket(20L));
         verify(ticketRepository, never()).delete(any(Ticket.class));
     }
 
@@ -207,16 +210,28 @@ class TicketServiceImplTest {
     @DisplayName("Фильтрация заявок передаёт критерии репозиторию")
     void searchTicketsDelegatesFilters() {
         when(ticketRepository.searchTickets(TicketStatus.PENDING, 1L, null, "client@example.test"))
-                .thenReturn(java.util.List.of(ticket));
+                .thenReturn(List.of(ticket));
 
         assertEquals(1, ticketService.searchTickets(TicketStatus.PENDING, 1L, null,
                 " client@example.test ").size());
     }
 
     @Test
-    @DisplayName("Обращение к несуществующей заявке возвращает not-found исключение")
+    @DisplayName("Обращение к несуществующей заявке выбрасывает TicketNotFoundException")
     void findTicketThrowsWhenMissing() {
         when(ticketRepository.findById(99L)).thenReturn(Optional.empty());
-        assertThrows(ResourceNotFoundException.class, () -> ticketService.findTicketById(99L));
+        assertThrows(TicketNotFoundException.class, () -> ticketService.findTicketById(99L));
+    }
+
+    @Test
+    @DisplayName("Назначение недоступного специалиста выбрасывает SpecialistUnavailableException")
+    void assignTicketRejectsUnavailableSpecialist() {
+        specialist.setAvailable(false);
+        when(ticketRepository.findByIdForUpdate(20L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByIdForUpdate(2L)).thenReturn(Optional.<User>of(specialist));
+
+        assertThrows(SpecialistUnavailableException.class,
+                () -> ticketService.assignTicketToSpecialist(20L, specialist));
+        verify(ticketRepository, never()).save(any(Ticket.class));
     }
 }

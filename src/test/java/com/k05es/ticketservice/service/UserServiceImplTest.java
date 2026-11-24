@@ -1,8 +1,9 @@
 package com.k05es.ticketservice.service;
 
 import com.k05es.ticketservice.dto.request.UpdateUserRequest;
-import com.k05es.ticketservice.exception.ResourceConflictException;
-import com.k05es.ticketservice.exception.ResourceNotFoundException;
+import com.k05es.ticketservice.exception.DuplicateResourceException;
+import com.k05es.ticketservice.exception.UserHasDependenciesException;
+import com.k05es.ticketservice.exception.UserNotFoundException;
 import com.k05es.ticketservice.model.AdminUser;
 import com.k05es.ticketservice.model.CustomerUser;
 import com.k05es.ticketservice.model.Department;
@@ -47,19 +48,19 @@ class UserServiceImplTest {
     }
 
     @Test
-    @DisplayName("Регистрация отклоняет занятый логин")
+    @DisplayName("Регистрация отклоняет занятый логин с DuplicateResourceException")
     void registerUserRejectsDuplicateUsername() {
         when(userRepository.existsByUsernameIgnoreCase("client")).thenReturn(true);
-        assertThrows(ResourceConflictException.class, () -> userService.registerUser(customer));
+        assertThrows(DuplicateResourceException.class, () -> userService.registerUser(customer));
         verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
-    @DisplayName("Регистрация отклоняет занятый email")
+    @DisplayName("Регистрация отклоняет занятый email с DuplicateResourceException")
     void registerUserRejectsDuplicateEmail() {
         when(userRepository.existsByUsernameIgnoreCase("client")).thenReturn(false);
         when(userRepository.existsByEmailIgnoreCase("client@example.test")).thenReturn(true);
-        assertThrows(ResourceConflictException.class, () -> userService.registerUser(customer));
+        assertThrows(DuplicateResourceException.class, () -> userService.registerUser(customer));
         verify(userRepository, never()).save(any(User.class));
     }
 
@@ -87,10 +88,10 @@ class UserServiceImplTest {
     }
 
     @Test
-    @DisplayName("Поиск несуществующего пользователя выбрасывает 404-исключение")
+    @DisplayName("Поиск несуществующего пользователя выбрасывает UserNotFoundException")
     void findUserByIdThrowsWhenMissing() {
         when(userRepository.findById(404L)).thenReturn(Optional.empty());
-        assertThrows(ResourceNotFoundException.class, () -> userService.findUserById(404L));
+        assertThrows(UserNotFoundException.class, () -> userService.findUserById(404L));
     }
 
     @Test
@@ -109,32 +110,31 @@ class UserServiceImplTest {
     }
 
     @Test
-    @DisplayName("Обновление несуществующего пользователя возвращает 404-исключение")
+    @DisplayName("Обновление несуществующего пользователя выбрасывает UserNotFoundException")
     void updateUserThrowsWhenMissing() {
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
-        assertThrows(ResourceNotFoundException.class,
+        assertThrows(UserNotFoundException.class,
                 () -> userService.updateUser(99L, new UpdateUserRequest()));
     }
 
     @Test
-    @DisplayName("Пользователя с отправленными сообщениями нельзя удалить")
+    @DisplayName("Пользователя с отправленными сообщениями нельзя удалить (UserHasDependenciesException)")
     void deleteUserRejectsUserWithMessages() {
         when(userRepository.existsById(10L)).thenReturn(true);
         when(userRepository.isUsedInTickets(10L)).thenReturn(false);
         when(userRepository.hasSentMessages(10L)).thenReturn(true);
 
-        assertThrows(ResourceConflictException.class, () -> userService.deleteUser(10L));
+        assertThrows(UserHasDependenciesException.class, () -> userService.deleteUser(10L));
         verify(userRepository, never()).deleteById(10L);
     }
 
-
     @Test
-    @DisplayName("Пользователя, связанного с заявкой, нельзя удалить")
+    @DisplayName("Пользователя, связанного с заявкой, нельзя удалить (UserHasDependenciesException)")
     void deleteUserRejectsUserUsedInTicket() {
         when(userRepository.existsById(10L)).thenReturn(true);
         when(userRepository.isUsedInTickets(10L)).thenReturn(true);
 
-        assertThrows(ResourceConflictException.class, () -> userService.deleteUser(10L));
+        assertThrows(UserHasDependenciesException.class, () -> userService.deleteUser(10L));
         verify(userRepository, never()).deleteById(10L);
     }
 

@@ -1,5 +1,6 @@
 package com.k05es.ticketservice.model;
 
+import com.k05es.ticketservice.exception.InvalidDomainValueException;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -95,14 +96,14 @@ public class Ticket {
     public void setId(Long id) { this.id = id; }
     public String getTitle() { return title; }
     public void setTitle(String title) {
-        if (title == null || title.isBlank()) throw new IllegalArgumentException("Заголовок обязателен");
-        if (title.length() > MAX_TITLE_LENGTH) throw new IllegalArgumentException("Заголовок не может быть длиннее " + MAX_TITLE_LENGTH + " символов");
+        if (title == null || title.isBlank()) throw new InvalidDomainValueException("Заголовок обязателен");
+        if (title.length() > MAX_TITLE_LENGTH) throw new InvalidDomainValueException("Заголовок не может быть длиннее " + MAX_TITLE_LENGTH + " символов");
         this.title = title;
     }
     public String getDescription() { return description; }
     public void setDescription(String description) {
-        if (description == null || description.isBlank()) throw new IllegalArgumentException("Описание обязательно");
-        if (description.length() > MAX_DESCRIPTION_LENGTH) throw new IllegalArgumentException("Описание не может быть длиннее " + MAX_DESCRIPTION_LENGTH + " символов");
+        if (description == null || description.isBlank()) throw new InvalidDomainValueException("Описание обязательно");
+        if (description.length() > MAX_DESCRIPTION_LENGTH) throw new InvalidDomainValueException("Описание не может быть длиннее " + MAX_DESCRIPTION_LENGTH + " символов");
         this.description = description;
     }
     public TicketStatus getStatus() { return status; }

@@ -1,5 +1,6 @@
 package com.k05es.ticketservice.model;
 
+import com.k05es.ticketservice.exception.InvalidDomainValueException;
 import jakarta.persistence.Column;
 import jakarta.persistence.DiscriminatorValue;
 import jakarta.persistence.Entity;
@@ -65,7 +66,7 @@ public class SpecialistUser extends User {
     public void decrementActiveTicketCount() { if (activeTicketCount > 0) activeTicketCount--; }
     public boolean canTakeMoreTickets() { return available && isActive(); }
     public void registerCompletedTicket(double rating) {
-        if (!Double.isFinite(rating) || rating < 0.0 || rating > 5.0) throw new IllegalArgumentException("Оценка должна быть от 0.0 до 5.0");
+        if (!Double.isFinite(rating) || rating < 0.0 || rating > 5.0) throw new InvalidDomainValueException("Оценка должна быть от 0.0 до 5.0");
         double total = averageRating * completedTicketCount;
         completedTicketCount++;
         completedTodayCount++;

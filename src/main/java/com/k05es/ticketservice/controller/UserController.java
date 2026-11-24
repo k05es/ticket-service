@@ -3,7 +3,7 @@ package com.k05es.ticketservice.controller;
 import com.k05es.ticketservice.dto.request.CreateUserRequest;
 import com.k05es.ticketservice.dto.request.UpdateUserRequest;
 import com.k05es.ticketservice.dto.response.UserResponse;
-import com.k05es.ticketservice.exception.ResourceNotFoundException;
+import com.k05es.ticketservice.exception.UserNotFoundException;
 import com.k05es.ticketservice.mapper.UserMapper;
 import com.k05es.ticketservice.model.User;
 import com.k05es.ticketservice.model.UserRole;
@@ -11,8 +11,8 @@ import com.k05es.ticketservice.model.UserStatus;
 import com.k05es.ticketservice.service.UserService;
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,7 +41,10 @@ public class UserController {
     @PostMapping
     public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
         User created = userService.registerUser(userMapper.toEntity(request));
-        URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(created.getId()).toUri();
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
         return ResponseEntity.created(location).body(userMapper.toResponse(created));
     }
 
@@ -50,8 +53,12 @@ public class UserController {
                                        @RequestParam(required = false) UserStatus status,
                                        @RequestParam(required = false) String username,
                                        @RequestParam(required = false) String email) {
-        return userService.searchUsers(role, status, username, email).stream()
-                .map(userMapper::toResponse).collect(Collectors.toList());
+        List<User> users = userService.searchUsers(role, status, username, email);
+        List<UserResponse> responses = new ArrayList<UserResponse>();
+        for (User user : users) {
+            responses.add(userMapper.toResponse(user));
+        }
+        return responses;
     }
 
     @GetMapping("/{id}")
@@ -66,7 +73,9 @@ public class UserController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
-        if (!userService.deleteUser(id)) throw new ResourceNotFoundException("Пользователь с ID " + id + " не найден");
+        if (!userService.deleteUser(id)) {
+            throw UserNotFoundException.byId(id);
+        }
         return ResponseEntity.noContent().build();
     }
 }

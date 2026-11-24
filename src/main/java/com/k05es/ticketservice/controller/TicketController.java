@@ -5,7 +5,8 @@ import com.k05es.ticketservice.dto.request.CreateMessageRequest;
 import com.k05es.ticketservice.dto.request.CreateTicketRequest;
 import com.k05es.ticketservice.dto.request.UpdateTicketRequest;
 import com.k05es.ticketservice.dto.response.TicketResponse;
-import com.k05es.ticketservice.exception.ResourceNotFoundException;
+import com.k05es.ticketservice.exception.TicketNotFoundException;
+import com.k05es.ticketservice.exception.UserNotFoundException;
 import com.k05es.ticketservice.mapper.TicketMapper;
 import com.k05es.ticketservice.model.CustomerUser;
 import com.k05es.ticketservice.model.SpecialistUser;
@@ -16,8 +17,8 @@ import com.k05es.ticketservice.service.TicketService;
 import com.k05es.ticketservice.service.UserService;
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -49,10 +50,13 @@ public class TicketController {
     public ResponseEntity<TicketResponse> createTicket(@Valid @RequestBody CreateTicketRequest request) {
         User foundCustomer = userService.findUserById(request.getCustomerId());
         if (!(foundCustomer instanceof CustomerUser customer)) {
-            throw new ResourceNotFoundException("Клиент не найден");
+            throw new UserNotFoundException("Клиент с ID " + request.getCustomerId() + " не найден.");
         }
         Ticket created = ticketService.createTicket(request.getTitle(), request.getDescription(), customer);
-        URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(created.getId()).toUri();
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
         return ResponseEntity.created(location).body(ticketMapper.toResponse(created));
     }
 
@@ -61,8 +65,12 @@ public class TicketController {
                                            @RequestParam(required = false) Long customerId,
                                            @RequestParam(required = false) Long specialistId,
                                            @RequestParam(required = false) String customerEmail) {
-        return ticketService.searchTickets(status, customerId, specialistId, customerEmail).stream()
-                .map(ticketMapper::toResponse).collect(Collectors.toList());
+        List<Ticket> tickets = ticketService.searchTickets(status, customerId, specialistId, customerEmail);
+        List<TicketResponse> responses = new ArrayList<TicketResponse>();
+        for (Ticket ticket : tickets) {
+            responses.add(ticketMapper.toResponse(ticket));
+        }
+        return responses;
     }
 
     @GetMapping("/{id}")
@@ -77,7 +85,9 @@ public class TicketController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteTicket(@PathVariable Long id) {
-        if (!ticketService.deleteTicket(id)) throw new ResourceNotFoundException("Заявка с ID " + id + " не найдена");
+        if (!ticketService.deleteTicket(id)) {
+            throw TicketNotFoundException.byId(id);
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -85,7 +95,7 @@ public class TicketController {
     public TicketResponse assignTicket(@PathVariable Long id, @PathVariable Long specialistId) {
         User foundSpecialist = userService.findUserById(specialistId);
         if (!(foundSpecialist instanceof SpecialistUser specialist)) {
-            throw new ResourceNotFoundException("Специалист не найден");
+            throw new UserNotFoundException("Специалист с ID " + specialistId + " не найден.");
         }
         ticketService.assignTicketToSpecialist(id, specialist);
         return ticketMapper.toResponse(ticketService.findTicketById(id));

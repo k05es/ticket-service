@@ -1,6 +1,8 @@
 package com.k05es.ticketservice.exception;
 
-/** Исключение, возникающее, если запрошенный объект не найден. */
-public class ResourceNotFoundException extends RuntimeException {
-    public ResourceNotFoundException(String message) { super(message); }
+/** Базовое исключение для случаев, когда запрошенный ресурс не найден. */
+public abstract class ResourceNotFoundException extends RuntimeException {
+    protected ResourceNotFoundException(String message) {
+        super(message);
+    }
 }
