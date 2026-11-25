@@ -60,6 +60,7 @@ class TicketOwnershipSecurityTest {
                 UserStatus.ACTIVE, "Петров", "Пётр", null,
                 "+79001234568", null, null, null, 0);
         authenticateAs("client10", "CUSTOMER");
+        when(userRepository.findByUsernameIgnoreCase("client10")).thenReturn(owner);
         when(userRepository.findByIdForUpdate(25L)).thenReturn(Optional.<User>of(victim));
 
         assertThrows(UnauthorizedActionException.class,
@@ -101,9 +102,9 @@ class TicketOwnershipSecurityTest {
         ticket.assignToSpecialist(assignedSpec);
 
         authenticateAs("spec21", "SPECIALIST");
+        when(userRepository.findByUsernameIgnoreCase("spec21")).thenReturn(otherSpec);
         when(ticketRepository.findByIdForUpdate(50L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByIdForUpdate(20L)).thenReturn(Optional.<User>of(assignedSpec));
-        when(userRepository.findByIdForUpdate(21L)).thenReturn(Optional.<User>of(otherSpec));
 
         assertThrows(UnauthorizedActionException.class,
                 () -> ticketService.completeTicket(50L, 5.0));

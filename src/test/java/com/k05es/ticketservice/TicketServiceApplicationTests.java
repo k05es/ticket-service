@@ -33,6 +33,7 @@ import static org.mockito.Mockito.when;
 
 /** Тесты Spring-приложения без подключения к реальной базе данных. */
 @SpringBootTest(properties = {
+        "app.security.admin.init=false",
         "spring.autoconfigure.exclude=" +
                 "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration," +
                 "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration," +
