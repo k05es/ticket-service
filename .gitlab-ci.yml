@@ -1,0 +1,18 @@
+image: maven:3.9.9-eclipse-temurin-17
+
+variables:
+  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version --no-transfer-progress"
+  MAVEN_OPTS: "-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+
+cache:
+  key: maven-repository
+  paths:
+    - .m2/repository
+
+stages:
+  - test
+
+verify:
+  stage: test
+  script:
+    - mvn $MAVEN_CLI_OPTS verify
